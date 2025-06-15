@@ -41,7 +41,7 @@ Bu proje, TEKNOFEST Sürü İHA Yarışması için geliştirilmiş hibrit sürü
 │       ├── Formation/
 │       │   └── FormationGenerator.cs           # Formasyon hesaplayıcı
 │       ├── Navigation/
-│       │   └── NavigationController.cs         # Navigasyon sistemi (Navigasyon.txt'den)
+│       │   └── NavigationController.cs         # Navigasyon sistemi 
 │       └── Utils/
 │           ├── CollisionAvoidanceSystem.cs     # Çarpışma önleme
 │           └── CentralCommunicationHub.cs      # Merkezi hub
