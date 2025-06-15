@@ -135,6 +135,15 @@ Merkez: P_center = (0, Z, 0)
 - ✅ Dinamik parametre güncellemeleri
 - ✅ Sürü navigasyonu
 
+#### Gerekliler
+```bash
+
+Unity>=2022.3.0f1
+ROS2-Humble
+Ubuntu>=20.04
+Python>=3.8
+```
+
 
 ### 🙏 Teşekkürler
 TEKNOFEST organizasyonu ve jüri üyelerine destekleri için teşekkür ederiz.
