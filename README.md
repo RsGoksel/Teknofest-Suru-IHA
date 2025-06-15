@@ -1,6 +1,15 @@
 # TEKNOFEST Sürü İHA Yarışması - Kritik Tasarım Raporu
 ## COMBINE Takımı - Hibrit Sürü Zekası Projesi
 
+### 🎬 Demonstrasyon Videoları
+- [Çizgi Formasyonu (Dikey)](https://youtu.be/HYYeip-Mim8)
+- [Çizgi Formasyonu ( Yatay)]
+- [V Formasyonu](https://youtu.be/DuO_IYh8ixo)
+- [Ok Formasyonu](https://youtu.be/IpQJxfUj--M)
+- [Sürü Navigasyon](https://youtu.be/xiAAvgKC9-k)
+- [Birey Ekleme-Çıkarma](https://youtu.be/rmu6ozI7tHk)
+
+
 ### 🚁 Proje Özeti
 Bu proje, TEKNOFEST Sürü İHA Yarışması için geliştirilmiş hibrit sürü zekası sistemidir. Merkezi ve merkezi olmayan kontrol mimarilerinin dinamik geçişini sağlayan özgün bir yaklaşım benimsenmiştir.
 
@@ -60,16 +69,8 @@ Bu proje, TEKNOFEST Sürü İHA Yarışması için geliştirilmiş hibrit sürü
 - **Çarpışma Önleme:** Güvenlik yarıçapı tabanlı proaktif sistem
 - **Fail-Safe Mekanizması:** İletişim kesilmesi durumunda otonom çalışma
 
-### 🎬 Demonstrasyon Videoları
-- [Çizgi Formasyonu (Dikey)](https://youtu.be/HYYeip-Mim8)
-- [Çizgi Formasyonu ( Yatay)]
-- [V Formasyonu](https://youtu.be/DuO_IYh8ixo)
-- [Ok Formasyonu](https://youtu.be/IpQJxfUj--M)
-- [Sürü Navigasyon](https://youtu.be/xiAAvgKC9-k)
-- [Birey Ekleme-Çıkarma](https://youtu.be/rmu6ozI7tHk)
 
 ### 🔧 Kurulum ve Çalıştırma
-
 #### Gereksinimler
 - Unity 2022.3 LTS+
 - Ubuntu 24.04
