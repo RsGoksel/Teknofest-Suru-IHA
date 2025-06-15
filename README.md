@@ -31,14 +31,21 @@ Bu proje, TEKNOFEST Sürü İHA Yarışması için geliştirilmiş hibrit sürü
 
 ### 📁 Proje Yapısı
 ```
-├── Simulations/           # Unity simülasyon dosyaları
-├── Algorithms/           # Sürü zekası algoritmaları
-│   ├── Formation/        # Formasyon kontrol algoritmaları
-│   ├── Navigation/       # Yol planlama ve navigasyon
-│   └── Communication/    # TCP haberleşme protokolü
-├── Hardware/            # Donanım konfigürasyonları
-├── Documentation/       # Teknik dokümantasyon
-└── Videos/             # Demonstrasyon videoları
+├── Assets/
+│   └── Scripts/
+│       ├── Core/
+│       │   ├── DroneSpawner.cs                 # Ana kontrol sistemi
+│       │   ├── SmartDronePhysics.cs            # Drone fizik kontrolü
+│       │   ├── DroneCommHub.cs                 # İletişim hub'ı
+│       │   └── SmartDroneData.cs               # Veri yapıları
+│       ├── Formation/
+│       │   └── FormationGenerator.cs           # Formasyon hesaplayıcı
+│       ├── Navigation/
+│       │   └── NavigationController.cs         # Navigasyon sistemi (Navigasyon.txt'den)
+│       └── Utils/
+│           ├── CollisionAvoidanceSystem.cs     # Çarpışma önleme
+│           └── CentralCommunicationHub.cs      # Merkezi hub
+
 ```
 
 ### 🎮 Desteklenen Formasyonlar
