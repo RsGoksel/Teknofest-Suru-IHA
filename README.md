@@ -9,6 +9,8 @@
 - [Sürü Navigasyon](https://youtu.be/xiAAvgKC9-k)
 - [Birey Ekleme-Çıkarma](https://youtu.be/rmu6ozI7tHk)
 
+- [Detaylı Formasyon Analizi] https://youtu.be/3D_quwQUq44
+- [Detaylı Navigasyon Analizi] https://youtu.be/lXrNAUw9yEk
 
 ### 🚁 Proje Özeti
 Bu proje, TEKNOFEST Sürü İHA Yarışması için geliştirilmiş hibrit sürü zekası sistemidir. Merkezi ve merkezi olmayan kontrol mimarilerinin dinamik geçişini sağlayan özgün bir yaklaşım benimsenmiştir.
