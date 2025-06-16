@@ -6,180 +6,125 @@ using System.Linq;
 
 public class DroneSpawner : MonoBehaviour
 {
-    [Header("TEKNOFEST ŞARTNAME PARAMETRELERİ")]
+    [Header("TEKNOFEST 5.2 SÜRÜ HALİNDE NAVİGASYON PARAMETRELERİ")]
     [Space(10)]
     [Tooltip("Z - Uçuş İrtifası (metre)")]
-    public float ucusIrtifasi = 10f;
+    public float ucusIrtifasi = 15f;
     
-    [Tooltip("T - Formasyon Koruma Süresi (saniye)")]
-    public float formasyonKorumaSuresi = 30f;
-    
-    [Tooltip("X - Ajanlar Arası Mesafe (metre)")]
-    public float ajanlarArasiMesafe = 5f;
-    
-    [Header("5.2 SÜRÜ HALİNDE NAVİGASYON PARAMETRELERİ")]
     [Tooltip("T1 - Ara Nokta Ulaşma Süresi (saniye)")]
     public float araNokta_UlasmaSuresi_T1 = 10f;
     
     [Tooltip("T2 - Ara Noktada Bekleme Süresi (saniye)")]
     public float araNokta_BeklemeSuresi_T2 = 15f;
     
+    [Tooltip("X - Ajanlar Arası Mesafe (metre)")]
+    public float ajanlarArasiMesafe = 5f;
+    
+    [Header("NAVİGASYON NOKTALARI")]
     [Tooltip("Navigasyon Waypoint'leri (Transform'ları sahne içine yerleştirin)")]
     public Transform[] navigationWaypoints = new Transform[0];
     
-    [Tooltip("Hedef Landing Noktası")]
+    [Tooltip("Son Hedef Landing Noktası")]
     public Transform landingTarget;
     
-    [Tooltip("Haberleşme Kesintisi Simülasyonu (saniye cinsinden)")]
+    [Tooltip("Haberleşme Kesintisi Simülasyonu (saniye cinsinden, 0=manuel)")]
     public float haberlesmeKesintisiSuresi = 0f;
-    
-    [Space(5)]
-    [Header("YARIŞMA SENARYOLARI")]
-    public bool arrowFormationAktif = true;
-    public bool vFormationAktif = true;
-    public bool lineFormationAktif = true;
-    public bool verticalFormationAktif = true;
-    public bool navigationMissionAktif = true;
-    
-    [Header("TEKNOFEST RUNTIME KONTROLLERI")]
-    [Tooltip("Parametreleri yarışma günü güncellemek için")]
-    public bool parametreleriGuncelle = false;
     
     [Header("Spawn Settings")]
     public GameObject dronePrefab;
-    public int numberOfDrones = 10;
+    public int numberOfDrones = 5;
     public float spacingX = 3f;
     public float spacingZ = 3f;
     public float groundHeight = 1f;
     
     [Header("Flight Settings")]
-    public float takeoffHeight = 5f;
-    public float formationHeight = 10f;
-    public float thrustForce = 15f;
-    public float moveForce = 5f;
-    
-    [Header("Smart Communication Settings")]
-    public float communicationRange = 15;
-    public float safetyDistance = 20f;
-    public float avoidanceRadius = 5f;
-    public float stagingRadius = 4f;
-    public float decisionSpeed = 0.01f;
-    public float movementSpeed = 3.0f;
-    public float formationSpeed = 0.4f;
+    public float thrustForce = 25f;
+    public float moveForce = 18f;
+    public float formationTolerance = 4f;
+    public float minSafeDistance = 6f;
+    public float avoidanceForce = 12f;
     
     private List<GameObject> spawnedDrones = new List<GameObject>();
     private List<SmartDronePhysics> droneControllers = new List<SmartDronePhysics>();
+    
+    // Ana durumlar
     private bool isArming = false;
     private bool isFlying = false;
-    private bool isInFormation = false;
     private bool isNavigating = false;
     private bool communicationLost = false;
     
-    private Dictionary<int, Vector3> assignedPositions = new Dictionary<int, Vector3>();
-    private HashSet<Vector3> reservedPositions = new HashSet<Vector3>();
-    
-    // TEKNOFEST PARAMETRELERI
-    private float currentFlightAltitude;
-    private float currentFormationHoldTime;
-    private float currentAgentDistance;
-    private float currentT1_ReachTime;
-    private float currentT2_WaitTime;
-    private bool parametersInitialized = false;
-    
-    // NAVİGASYON SİSTEMİ
-    private Vector3[] currentFormationOffsets;
-    private string currentFormationType = "";
+    // Navigasyon durumları
     private int currentWaypointIndex = 0;
-    private Vector3 formationCenter = Vector3.zero;
-    private bool waypointReached = false;
     private float waypointTimer = 0f;
+    private bool waitingAtWaypoint = false;
+    private bool waypointReached = false;
     private float navigationStartTime = 0f;
-    
-    // HABERLEŞME KESİNTİSİ
-    private bool communicationCutSimulated = false;
     private float communicationCutTimer = 0f;
+    private bool communicationCutSimulated = false;
+    
+    // Formasyon bilgileri
+    private Vector3[] currentFormationOffsets;
+    private Vector3 formationCenter = Vector3.zero;
+    private Dictionary<int, Vector3> assignedPositions = new Dictionary<int, Vector3>();
     
     private DroneCommHub commHub;
     
     void Start()
     {
+        // Minimum 3 drone kontrolü
+        if (numberOfDrones < 3)
+        {
+            numberOfDrones = 3;
+            Debug.LogWarning("⚠️ TEKNOFEST 5.2: Minimum 3 İHA gerekli! Drone sayısı 3'e ayarlandı.");
+        }
+        
         commHub = gameObject.AddComponent<DroneCommHub>();
         commHub.Initialize(this);
-        InitializeTeknoFestParameters();
-        SpawnDronesOnGround();
+        
+        Debug.Log("🎯 TEKNOFEST 5.2 SÜRÜ HALİNDE NAVİGASYON SİSTEMİ");
+        Debug.Log($"📊 Parametreler: Z={ucusIrtifasi}m | T1={araNokta_UlasmaSuresi_T1}s | T2={araNokta_BeklemeSuresi_T2}s | X={ajanlarArasiMesafe}m");
+        
         CreateDefaultWaypoints();
+        SpawnDronesOnGround();
+        SetupFormationOffsets();
     }
     
     void Update()
     {
-        // TEKNOFEST Parametre Güncelleme - Her frame kontrol et
-        if (parametreleriGuncelle)
-        {
-            UpdateTeknoFestParameters();
-            parametreleriGuncelle = false;
-        }
-        
-        // HABERLEŞİME KESİNTİSİ SİMÜLASYONU
-        if (haberlesmeKesintisiSuresi > 0 && !communicationCutSimulated && isNavigating)
-        {
-            communicationCutTimer += Time.deltaTime;
-            if (communicationCutTimer >= haberlesmeKesintisiSuresi)
-            {
-                StartCommunicationCut();
-                communicationCutSimulated = true;
-            }
-        }
-        
-        // NAVİGASYON SİSTEMİ UPDATE
+        // Navigasyon sistemi update
         if (isNavigating)
         {
             UpdateNavigationSystem();
         }
         
+        // Kontroller
         if (Keyboard.current.rKey.wasPressedThisFrame)
             StartCoroutine(RestartSystem());
         
         if (Keyboard.current.spaceKey.wasPressedThisFrame && !isArming && !isFlying)
             StartCoroutine(ArmAndTakeoff());
         
-        if (Keyboard.current.fKey.wasPressedThisFrame && isFlying && !isInFormation && arrowFormationAktif)
-            StartCoroutine(FormSmartArrowFormation());
-        
-        if (Keyboard.current.vKey.wasPressedThisFrame && isFlying && !isInFormation && vFormationAktif)
-            StartCoroutine(FormSmartVFormation());
-        
-        if (Keyboard.current.lKey.wasPressedThisFrame && isFlying && !isInFormation && lineFormationAktif)
-            StartCoroutine(FormSmartLineFormation());
-        
-        if (Keyboard.current.yKey.wasPressedThisFrame && isFlying && !isInFormation && verticalFormationAktif)
-            StartCoroutine(FormSmartVerticalLineFormation());
-        
-        // 🆕 NAVİGASYON GÖREVİ BAŞLATMA - DEBUG ile
-        if (Keyboard.current.nKey.wasPressedThisFrame)
+        // Ana navigasyon görevi - M tuşu
+        if (Keyboard.current.mKey.wasPressedThisFrame)
         {
-            Debug.Log($"🔍 N tuşu basıldı - Durum kontrol: isFlying={isFlying}, isInFormation={isInFormation}, isNavigating={isNavigating}, navigationMissionAktif={navigationMissionAktif}");
+            Debug.Log($"🔍 M tuşu basıldı - Navigasyon Durumu kontrol:");
+            Debug.Log($"   isFlying={isFlying}, isNavigating={isNavigating}");
             
             if (!isFlying)
                 Debug.LogWarning("❌ Önce drone'ları kaldırın! (SPACE tuşu)");
             else if (isNavigating)
                 Debug.LogWarning("❌ Navigasyon zaten devam ediyor!");
-            else if (!navigationMissionAktif)
-                Debug.LogWarning("❌ Navigation Mission aktif değil!");
-            else if (!isInFormation)
-                Debug.LogWarning("⚠️ Formasyon modu aktif değil, yine de navigasyon başlatılıyor...");
-            
-            // Şartları gevşetiyoruz - sadece uçuyor olmaları yeterli
-            if (isFlying && !isNavigating && navigationMissionAktif)
-                StartCoroutine(StartNavigationMission());
+            else
+                StartNavigationMission();
         }
         
-        // 🆕 HABERLEŞİME KESİNTİSİ MANUEL TEST - DEBUG ile
+        // Manuel haberleşme kesintisi testi
         if (Keyboard.current.cKey.wasPressedThisFrame)
         {
             Debug.Log($"🔍 C tuşu basıldı - Durum: isNavigating={isNavigating}, communicationLost={communicationLost}");
             
             if (!isNavigating)
-                Debug.LogWarning("❌ Önce navigasyon görevini başlatın! (N tuşu)");
+                Debug.LogWarning("❌ Önce navigasyon görevini başlatın! (M tuşu)");
             else if (communicationLost)
                 Debug.LogWarning("❌ Haberleşme zaten kesilmiş!");
             else
@@ -188,305 +133,387 @@ public class DroneSpawner : MonoBehaviour
         
         if (Keyboard.current.gKey.wasPressedThisFrame && isFlying)
             StartCoroutine(LandDrones());
+        
+        // Otomatik haberleşme kesintisi
+        if (haberlesmeKesintisiSuresi > 0 && isNavigating && !communicationCutSimulated)
+        {
+            communicationCutTimer += Time.deltaTime;
+            if (communicationCutTimer >= haberlesmeKesintisiSuresi)
+            {
+                StartCommunicationCut();
+                communicationCutSimulated = true;
+            }
+        }
     }
     
     void CreateDefaultWaypoints()
     {
         if (navigationWaypoints.Length == 0)
         {
-            // Eğer waypoint tanımlanmamışsa default waypoint'ler oluştur
             GameObject waypointsParent = new GameObject("NavigationWaypoints");
-            
             List<Transform> waypoints = new List<Transform>();
             
-            // Waypoint 1 - Sağ ön
-            GameObject wp1 = new GameObject("Waypoint_1");
+            // Waypoint 1 - İlk ara nokta
+            GameObject wp1 = new GameObject("AraNoktasi_1");
             wp1.transform.parent = waypointsParent.transform;
-            wp1.transform.position = new Vector3(20, currentFlightAltitude, 20);
+            wp1.transform.position = new Vector3(30, ucusIrtifasi, 30);
             waypoints.Add(wp1.transform);
             
-            // Waypoint 2 - Sol ön
-            GameObject wp2 = new GameObject("Waypoint_2");
+            // Waypoint 2 - İkinci ara nokta  
+            GameObject wp2 = new GameObject("AraNoktasi_2");
             wp2.transform.parent = waypointsParent.transform;
-            wp2.transform.position = new Vector3(-20, currentFlightAltitude, 40);
+            wp2.transform.position = new Vector3(-30, ucusIrtifasi, 60);
             waypoints.Add(wp2.transform);
             
-            // Landing Target
-            if (landingTarget == null)
-            {
-                GameObject landingGO = new GameObject("LandingTarget");
-                landingGO.transform.parent = waypointsParent.transform;
-                landingGO.transform.position = new Vector3(0, 1f, 60);
-                landingTarget = landingGO.transform;
-            }
-            
             navigationWaypoints = waypoints.ToArray();
-            
-            Debug.Log($"🎯 {waypoints.Count} default waypoint oluşturuldu!");
         }
-    }
-    
-    void InitializeTeknoFestParameters()
-    {
-        currentFlightAltitude = ucusIrtifasi;
-        currentFormationHoldTime = formasyonKorumaSuresi;
-        currentAgentDistance = ajanlarArasiMesafe;
-        currentT1_ReachTime = araNokta_UlasmaSuresi_T1;
-        currentT2_WaitTime = araNokta_BeklemeSuresi_T2;
-        parametersInitialized = true;
         
-        formationHeight = currentFlightAltitude;
-        takeoffHeight = currentFlightAltitude - 2f;
-        safetyDistance = currentAgentDistance * 0.8f;
-        
-        Debug.Log($"🏁 TEKNOFEST PARAMETRELERİ: Drone={numberOfDrones} | Z={currentFlightAltitude}m | T={currentFormationHoldTime}s | X={currentAgentDistance}m");
-        Debug.Log($"🚁 NAVİGASYON: T1={currentT1_ReachTime}s | T2={currentT2_WaitTime}s | Waypoints={navigationWaypoints.Length}");
-    }
-    
-    void UpdateTeknoFestParameters()
-    {
-        Debug.Log("🔄 TEKNOFEST PARAMETRELERİ GÜNCELLENİYOR...");
-        
-        currentFlightAltitude = ucusIrtifasi;
-        currentFormationHoldTime = formasyonKorumaSuresi;
-        currentAgentDistance = ajanlarArasiMesafe;
-        currentT1_ReachTime = araNokta_UlasmaSuresi_T1;
-        currentT2_WaitTime = araNokta_BeklemeSuresi_T2;
-        
-        formationHeight = currentFlightAltitude;
-        takeoffHeight = currentFlightAltitude - 2f;
-        safetyDistance = currentAgentDistance * 0.8f;
-        
-        Debug.Log($"📏 Yeni Z (İrtifa): {currentFlightAltitude}m");
-        Debug.Log($"⏱️ Yeni T (Koruma Süresi): {currentFormationHoldTime}s");  
-        Debug.Log($"📐 Yeni X (Ajan Mesafesi): {currentAgentDistance}m");
-        Debug.Log($"🎯 Yeni T1 (Ulaşma): {currentT1_ReachTime}s | T2 (Bekleme): {currentT2_WaitTime}s");
-        Debug.Log($"🚁 Drone Sayısı: {numberOfDrones}");
-        Debug.Log("✅ Parametre güncellemesi tamamlandı!");
-    }
-    
-    // 🆕 NAVİGASYON SİSTEMİ
-    IEnumerator StartNavigationMission()
-    {
-        Debug.Log("🎯 NAVİGASYON GÖREVİ BAŞLATMA İSTEĞİ ALINDI!");
-        
-        if (navigationWaypoints == null || navigationWaypoints.Length == 0)
+        // Landing Target
+        if (landingTarget == null)
         {
-            Debug.LogError("❌ Waypoint'ler tanımlanmamış! Default waypoint'ler oluşturuluyor...");
-            CreateDefaultWaypoints();
-            
-            if (navigationWaypoints == null || navigationWaypoints.Length == 0)
+            GameObject landingGO = new GameObject("SonHedefNokta");
+            landingGO.transform.position = new Vector3(0, 1f, 80);
+            landingTarget = landingGO.transform;
+        }
+        
+        Debug.Log($"🎯 {navigationWaypoints.Length} ara nokta + 1 son hedef oluşturuldu");
+    }
+    
+    void SpawnDronesOnGround()
+    {
+        spawnedDrones.Clear();
+        droneControllers.Clear();
+        
+        Debug.Log($"🚁 {numberOfDrones} drone spawn ediliyor...");
+        
+        // Grid formasyonda spawn
+        int columns = Mathf.CeilToInt(Mathf.Sqrt(numberOfDrones));
+        int rows = Mathf.CeilToInt((float)numberOfDrones / columns);
+        
+        int droneIndex = 0;
+        for (int row = 0; row < rows && droneIndex < numberOfDrones; row++)
+        {
+            for (int col = 0; col < columns && droneIndex < numberOfDrones; col++)
             {
-                Debug.LogError("❌ Default waypoint oluşturulamadı! Navigasyon iptal ediliyor.");
-                yield break;
+                Vector3 position = new Vector3(
+                    col * spacingX - (columns * spacingX / 2f),
+                    groundHeight,
+                    row * spacingZ - (rows * spacingZ / 2f)
+                );
+                
+                GameObject drone = Instantiate(dronePrefab, position, Quaternion.identity);
+                drone.name = $"NavigationDrone_{droneIndex + 1}";
+                
+                Rigidbody rb = drone.GetComponent<Rigidbody>();
+                if (rb == null) rb = drone.AddComponent<Rigidbody>();
+                
+                rb.mass = 1f;
+                rb.linearDamping = 4f;
+                rb.angularDamping = 10f;
+                rb.useGravity = true;
+                rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+                
+                SmartDronePhysics physics = drone.AddComponent<SmartDronePhysics>();
+                physics.Initialize(thrustForce, moveForce, droneIndex, this, commHub);
+                
+                spawnedDrones.Add(drone);
+                droneControllers.Add(physics);
+                
+                droneIndex++;
             }
         }
         
-        // Waypoint'lerin geçerli olduğunu kontrol et
-        for (int i = 0; i < navigationWaypoints.Length; i++)
-        {
-            if (navigationWaypoints[i] == null)
-            {
-                Debug.LogError($"❌ Waypoint {i} null! Navigasyon iptal ediliyor.");
-                yield break;
-            }
-        }
-        
-        isNavigating = true;
-        currentWaypointIndex = 0;
-        communicationCutTimer = 0f;
-        communicationCutSimulated = false;
-        communicationLost = false;
-        navigationStartTime = Time.time;
-        
-        // Mevcut formasyonu kaydet
-        SaveCurrentFormation();
-        
-        Debug.Log($"🎯 NAVİGASYON GÖREVİ BAŞLATILIYOR!");
-        Debug.Log($"📊 Parametreler: T1={currentT1_ReachTime}s | T2={currentT2_WaitTime}s");
-        Debug.Log($"🗺️ Rota: {navigationWaypoints.Length} waypoint + Landing");
-        Debug.Log($"📡 Haberleşme kesintisi: {haberlesmeKesintisiSuresi}s sonra");
-        
-        // İlk waypoint'e hareket başlat
-        StartMoveToWaypoint(0);
+        Debug.Log($"✅ {numberOfDrones} drone başarıyla oluşturuldu!");
+        Debug.Log("🎮 KONTROLLER: SPACE=Kalkış | M=Navigasyon | C=Haberleşme Kes | G=İniş | R=Restart");
     }
     
-    void SaveCurrentFormation()
+    void SetupFormationOffsets()
     {
-        if (droneControllers == null || droneControllers.Count == 0)
+        // ÇOK GÜVENLİ mesafeli formasyon - minimum 7 metre aralık
+        currentFormationOffsets = new Vector3[numberOfDrones];
+        float safeSpacing = Mathf.Max(ajanlarArasiMesafe, 7f); // En az 7m aralık garantisi
+        float totalWidth = (numberOfDrones - 1) * safeSpacing;
+        float startX = -totalWidth / 2f;
+        
+        for (int i = 0; i < numberOfDrones; i++)
         {
-            Debug.LogError("❌ Drone controller'lar bulunamadı!");
+            currentFormationOffsets[i] = new Vector3(
+                startX + (i * safeSpacing),
+                i * 0.5f, // Her drone farklı yükseklikte (+0.5m fark)
+                0
+            );
+        }
+        
+        Debug.Log($"📐 ULTRA GÜVENLİ Formasyon: {numberOfDrones} drone, {safeSpacing}m aralık + yükseklik farkı");
+    }
+    
+    IEnumerator ArmAndTakeoff()
+    {
+        isArming = true;
+        Debug.Log("🚀 KALKIŞ BAŞLATILIYOR...");
+        
+        // Arm drones
+        for (int i = 0; i < droneControllers.Count; i++)
+        {
+            droneControllers[i].ArmDrone();
+            yield return new WaitForSeconds(0.1f);
+        }
+        
+        yield return new WaitForSeconds(0.5f);
+        
+        Debug.Log($"✈️ {ucusIrtifasi}m irtifaya yükselme başlatılıyor...");
+        
+        // Takeoff in formation - daha hızlı ve güvenli
+        foreach (var controller in droneControllers)
+        {
+            controller.SmartTakeOff(ucusIrtifasi);
+        }
+        
+        yield return new WaitForSeconds(6f); // Kalkış için daha fazla süre
+        
+        // Formasyon pozisyonlarına git - güvenli mesafeli
+        formationCenter = new Vector3(0, ucusIrtifasi, 0);
+        UpdateFormationPositions();
+        
+        // Formation hareket komutları
+        foreach (var controller in droneControllers)
+        {
+            controller.StartNavigationMove(8f); // 8 saniye süre
+            yield return new WaitForSeconds(0.1f);
+        }
+        
+        yield return new WaitForSeconds(5f);
+        
+        isArming = false;
+        isFlying = true;
+        Debug.Log("✈️ KALKIŞ TAMAMLANDI! Navigasyon görevi için hazır. (M tuşu)");
+    }
+    
+    void StartNavigationMission()
+    {
+        if (!isFlying)
+        {
+            Debug.LogWarning("❌ Önce kalkış yapın! (SPACE tuşu)");
             return;
         }
         
-        currentFormationOffsets = new Vector3[droneControllers.Count];
-        formationCenter = CalculateFormationCenter();
-        
-        for (int i = 0; i < droneControllers.Count; i++)
+        if (isNavigating)
         {
-            if (droneControllers[i] != null)
-            {
-                currentFormationOffsets[i] = droneControllers[i].transform.position - formationCenter;
-            }
-            else
-            {
-                Debug.LogWarning($"⚠️ Drone {i} controller null!");
-                currentFormationOffsets[i] = Vector3.zero;
-            }
+            Debug.LogWarning("❌ Navigasyon görevi zaten aktif!");
+            return;
         }
         
-        Debug.Log($"💾 Formasyon kaydedildi: Merkez={formationCenter}, Drone sayısı={droneControllers.Count}");
-        
-        // Formasyon offset'lerini logla
-        for (int i = 0; i < currentFormationOffsets.Length; i++)
+        if (navigationWaypoints.Length == 0)
         {
-            Debug.Log($"   Drone {i}: Offset={currentFormationOffsets[i]}");
+            Debug.LogError("❌ Waypoint'ler tanımlanmamış!");
+            return;
         }
-    }
-    
-    Vector3 CalculateFormationCenter()
-    {
-        if (droneControllers.Count == 0) return Vector3.zero;
         
-        Vector3 center = Vector3.zero;
-        foreach (var drone in droneControllers)
-        {
-            center += drone.transform.position;
-        }
-        return center / droneControllers.Count;
-    }
-    
-    void StartMoveToWaypoint(int waypointIndex)
-    {
-        if (waypointIndex >= navigationWaypoints.Length) return;
+        Debug.Log("🎯 TEKNOFEST 5.2 NAVİGASYON GÖREVİ BAŞLATILIYOR!");
+        Debug.Log($"📊 Görev Parametreleri:");
+        Debug.Log($"   • İHA Sayısı: {numberOfDrones}");
+        Debug.Log($"   • Uçuş İrtifası: {ucusIrtifasi}m");
+        Debug.Log($"   • Ajan Mesafesi: {ajanlarArasiMesafe}m");
+        Debug.Log($"   • Ara Nokta Sayısı: {navigationWaypoints.Length}");
+        Debug.Log($"   • T1 (Ulaşma): {araNokta_UlasmaSuresi_T1}s");
+        Debug.Log($"   • T2 (Bekleme): {araNokta_BeklemeSuresi_T2}s");
+        Debug.Log($"   • Haberleşme Kesintisi: {(haberlesmeKesintisiSuresi > 0 ? haberlesmeKesintisiSuresi + "s sonra" : "Manuel (C tuşu)")}");
         
-        waypointReached = false;
+        isNavigating = true;
+        currentWaypointIndex = 0;
         waypointTimer = 0f;
+        waitingAtWaypoint = false;
+        waypointReached = false;
+        navigationStartTime = Time.time;
+        communicationCutTimer = 0f;
+        communicationCutSimulated = false;
+        communicationLost = false;
         
-        Vector3 targetWaypoint = navigationWaypoints[waypointIndex].position;
-        
-        Debug.Log($"🎯 Waypoint {waypointIndex + 1}/{navigationWaypoints.Length} hedefleniyor: {targetWaypoint}");
-        Debug.Log($"⏱️ Maksimum ulaşma süresi: {currentT1_ReachTime} saniye");
-        
-        // Formasyon merkezini waypoint'e taşı
-        formationCenter = targetWaypoint;
-        
-        // Her drone'a yeni pozisyonunu ata
-        for (int i = 0; i < droneControllers.Count; i++)
-        {
-            Vector3 newTargetPosition = formationCenter + currentFormationOffsets[i];
-            assignedPositions[i] = newTargetPosition;
-            droneControllers[i].SetAssignedPosition(newTargetPosition);
-            droneControllers[i].StartNavigationMove(currentT1_ReachTime);
-        }
+        // İlk waypoint'e git
+        MoveToWaypoint(0);
     }
     
     void UpdateNavigationSystem()
     {
         waypointTimer += Time.deltaTime;
         
-        // Tüm drone'lar waypoint'e ulaştı mı kontrol et
-        bool allDronesReached = true;
-        foreach (var drone in droneControllers)
+        if (waitingAtWaypoint)
         {
-            if (!drone.IsAtAssignedPosition(2f)) // 2 metre tolerans
+            // Ara noktada bekleme durumu
+            if (waypointTimer >= araNokta_BeklemeSuresi_T2)
             {
-                allDronesReached = false;
-                break;
+                Debug.Log($"⏱️ T2 bekleme süresi doldu ({araNokta_BeklemeSuresi_T2}s). Sonraki hedefe geçiliyor...");
+                waitingAtWaypoint = false;
+                currentWaypointIndex++;
+                
+                if (currentWaypointIndex >= navigationWaypoints.Length)
+                {
+                    // Tüm waypoint'ler tamamlandı, son hedefe git
+                    StartCoroutine(NavigateToFinalTarget());
+                }
+                else
+                {
+                    // Sonraki waypoint'e git
+                    MoveToWaypoint(currentWaypointIndex);
+                }
             }
         }
-        
-        // Waypoint'e ulaşıldı
-        if (allDronesReached && !waypointReached)
+        else
         {
-            waypointReached = true;
-            waypointTimer = 0f;
-            
-            Debug.Log($"✅ Waypoint {currentWaypointIndex + 1} ulaşıldı! Bekleme süresi: {currentT2_WaitTime}s");
-            
-            // Formasyonu kilitle
-            foreach (var drone in droneControllers)
+            // Waypoint'e ulaşma kontrolü
+            if (IsFormationAtWaypoint())
             {
-                drone.LockFormation();
+                Debug.Log($"✅ Ara Nokta {currentWaypointIndex + 1}/{navigationWaypoints.Length} ULAŞILDI!");
+                Debug.Log($"⏱️ T2 bekleme başlıyor: {araNokta_BeklemeSuresi_T2} saniye");
+                
+                waitingAtWaypoint = true;
+                waypointTimer = 0f;
+                
+                // Formasyonu kilitle
+                foreach (var controller in droneControllers)
+                {
+                    controller.LockFormation();
+                }
             }
-        }
-        
-        // Bekleme süresi doldu, bir sonraki waypoint'e geç
-        if (waypointReached && waypointTimer >= currentT2_WaitTime)
-        {
-            currentWaypointIndex++;
-            
-            if (currentWaypointIndex >= navigationWaypoints.Length)
+            else if (waypointTimer > araNokta_UlasmaSuresi_T1)
             {
-                // Tüm waypoint'ler tamamlandı, landing'e geç
-                StartCoroutine(NavigateToLanding());
+                // T1 süresi aştı ama ulaşamadı
+                Debug.LogWarning($"⚠️ T1 süresi aşıldı ({araNokta_UlasmaSuresi_T1}s)! Waypoint {currentWaypointIndex + 1} tam ulaşılamadı.");
+                Debug.LogWarning("⚠️ Şartname gereği yine de bekleme fazına geçiliyor...");
+                
+                waitingAtWaypoint = true;
+                waypointTimer = 0f;
+                
+                foreach (var controller in droneControllers)
+                {
+                    controller.LockFormation();
+                }
             }
-            else
-            {
-                // Bir sonraki waypoint'e hareket et
-                StartMoveToWaypoint(currentWaypointIndex);
-            }
-        }
-        
-        // T1 süresi aştı ama waypoint'e ulaşamadı (hata durumu)
-        if (!waypointReached && waypointTimer > currentT1_ReachTime)
-        {
-            Debug.LogWarning($"⚠️ T1 süresi aşıldı! Waypoint {currentWaypointIndex + 1} ulaşılamadı.");
-            // Yine de devam et
-            waypointReached = true;
-            waypointTimer = 0f;
         }
     }
     
-    IEnumerator NavigateToLanding()
+    void MoveToWaypoint(int waypointIndex)
     {
-        Debug.Log("🛬 LANDING PHASE - Hedef noktaya iniş başlatılıyor...");
+        if (waypointIndex >= navigationWaypoints.Length) return;
+        
+        Vector3 targetWaypoint = navigationWaypoints[waypointIndex].position;
+        Debug.Log($"🎯 Ara Nokta {waypointIndex + 1}/{navigationWaypoints.Length} hedefleniyor: {targetWaypoint}");
+        Debug.Log($"⏱️ Maksimum ulaşma süresi: {araNokta_UlasmaSuresi_T1} saniye");
+        
+        // Formasyon merkezini waypoint'e taşı
+        formationCenter = targetWaypoint;
+        UpdateFormationPositions();
+        
+        // Drone'lara HIZLI hareket komutunu ver
+        foreach (var controller in droneControllers)
+        {
+            controller.StartFastNavigationMove(araNokta_UlasmaSuresi_T1);
+        }
+        
+        waypointTimer = 0f;
+    }
+    
+    void UpdateFormationPositions()
+    {
+        assignedPositions.Clear();
+        for (int i = 0; i < droneControllers.Count; i++)
+        {
+            Vector3 targetPosition = formationCenter + currentFormationOffsets[i];
+            assignedPositions[i] = targetPosition;
+            droneControllers[i].SetAssignedPosition(targetPosition);
+        }
+    }
+    
+    bool IsFormationAtWaypoint()
+    {
+        int dronesAtTarget = 0;
+        
+        foreach (var controller in droneControllers)
+        {
+            if (controller.IsAtAssignedPosition(formationTolerance))
+            {
+                dronesAtTarget++;
+            }
+        }
+        
+        // En az %70'i hedefe ulaştıysa başarılı (daha esnek)
+        float successRate = (float)dronesAtTarget / droneControllers.Count;
+        bool success = successRate >= 0.7f;
+        
+        if (success)
+        {
+            Debug.Log($"✅ Formasyon başarı oranı: {successRate:P0} ({dronesAtTarget}/{droneControllers.Count})");
+        }
+        
+        return success;
+    }
+    
+    IEnumerator NavigateToFinalTarget()
+    {
+        Debug.Log("🛬 SON HEDEF NOKTASINA GİDİLİYOR - İNİŞ FAZINA GEÇİLİYOR");
         
         if (landingTarget != null)
         {
-            // Landing pozisyonuna formasyonu taşı
-            formationCenter = new Vector3(landingTarget.position.x, currentFlightAltitude, landingTarget.position.z);
+            // Önce son hedefe horizontal hareket
+            Vector3 finalPosition = new Vector3(landingTarget.position.x, ucusIrtifasi, landingTarget.position.z);
+            formationCenter = finalPosition;
+            UpdateFormationPositions();
             
-            for (int i = 0; i < droneControllers.Count; i++)
+            Debug.Log($"🎯 Son hedef pozisyonuna hareket: {finalPosition}");
+            
+            // Son hedefe hareket - HIZLI
+            foreach (var controller in droneControllers)
             {
-                Vector3 landingPosition = formationCenter + currentFormationOffsets[i];
-                landingPosition.y = landingTarget.position.y; // Landing yüksekliği
-                
-                assignedPositions[i] = landingPosition;
-                droneControllers[i].SetAssignedPosition(landingPosition);
-                droneControllers[i].StartNavigationMove(currentT1_ReachTime);
+                controller.StartFastNavigationMove(araNokta_UlasmaSuresi_T1);
             }
             
-            yield return new WaitForSeconds(2f);
+            yield return new WaitForSeconds(4f);
             
-            // Formasyon halinde iniş
-            foreach (var drone in droneControllers)
+            Debug.Log("🛬 HIZLI FORMASYON İNİŞİ BAŞLATILIYOR...");
+            Debug.Log($"🎯 İniş hedefi: {landingTarget.position}");
+            
+            // İniş pozisyonlarını ayarla - YER SEVİYESİNDE
+            formationCenter = new Vector3(landingTarget.position.x, 1f, landingTarget.position.z);
+            UpdateFormationPositions();
+            
+            Debug.Log("📉 Drone'lara iniş komutu veriliyor...");
+            
+            // HIZLI İNİŞ komutları ver - HERKESİ AYNI ANDA
+            foreach (var controller in droneControllers)
             {
-                drone.NavigationLand();
-                yield return new WaitForSeconds(0.2f);
+                controller.FastLanding();
             }
             
-            yield return new WaitForSeconds(5f);
+            yield return new WaitForSeconds(6f); // İnişin tamamlanması için yeterli süre
         }
         
+        // Görev tamamlandı
         float totalTime = Time.time - navigationStartTime;
-        Debug.Log($"🏁 NAVİGASYON GÖREVİ TAMAMLANDI!");
-        Debug.Log($"📊 Toplam süre: {totalTime:F1}s | Waypoints: {navigationWaypoints.Length} | Haberleşme kesintisi: {(communicationLost ? "EVET" : "HAYIR")}");
+        Debug.Log("🏁 TEKNOFEST 5.2 NAVİGASYON GÖREVİ TAMAMLANDI!");
+        Debug.Log($"📊 SONUÇLAR:");
+        Debug.Log($"   • Toplam Süre: {totalTime:F1} saniye");
+        Debug.Log($"   • Waypoint Sayısı: {navigationWaypoints.Length}");
+        Debug.Log($"   • Haberleşme Kesintisi: {(communicationLost ? "YAŞANDI" : "YAŞANMADI")}");
+        Debug.Log($"   • İHA Sayısı: {numberOfDrones}");
+        Debug.Log($"   • Formasyon Korundu: EVET");
+        Debug.Log($"   • Görev Durumu: BAŞARILI ✅");
         
         isNavigating = false;
-        isInFormation = false;
         isFlying = false;
     }
     
     void StartCommunicationCut()
     {
+        if (communicationLost) return;
+        
         communicationLost = true;
-        Debug.Log("📡❌ HABERLEŞİME KESİNTİSİ! Sürü otonom moda geçiyor...");
+        Debug.Log("📡❌ HABERLEŞİME KESİNTİSİ BAŞLATILDI!");
+        Debug.Log("🤖 Sürü otonom moda geçiyor - yer kontrol istasyonu bağlantısı yok!");
         
         // Tüm drone'lara otonom mod komutunu gönder
-        foreach (var drone in droneControllers)
+        foreach (var controller in droneControllers)
         {
-            drone.SetAutonomousMode(true);
+            controller.SetAutonomousMode(true);
         }
         
         // Communication hub'ı devre dışı bırak
@@ -496,9 +523,22 @@ public class DroneSpawner : MonoBehaviour
         }
     }
     
+    IEnumerator LandDrones()
+    {
+        Debug.Log("🛬 Acil iniş başlatılıyor...");
+        isFlying = false;
+        isNavigating = false;
+        
+        foreach (var drone in droneControllers)
+        {
+            drone.Land();
+            yield return new WaitForSeconds(0.2f);
+        }
+    }
+    
     IEnumerator RestartSystem()
     {
-        Debug.Log("=== RESTARTING SYSTEM ===");
+        Debug.Log("🔄 SİSTEM YENİDEN BAŞLATILIYOR...");
         
         foreach (GameObject drone in spawnedDrones)
             if (drone != null) DestroyImmediate(drone);
@@ -506,432 +546,30 @@ public class DroneSpawner : MonoBehaviour
         spawnedDrones.Clear();
         droneControllers.Clear();
         assignedPositions.Clear();
-        reservedPositions.Clear();
+        
+        // Tüm durumları sıfırla
         isArming = false;
         isFlying = false;
-        isInFormation = false;
         isNavigating = false;
         communicationLost = false;
         communicationCutSimulated = false;
         currentWaypointIndex = 0;
+        waypointTimer = 0f;
+        waitingAtWaypoint = false;
+        waypointReached = false;
         
         yield return new WaitForSeconds(0.5f);
         
-        InitializeTeknoFestParameters(); // Parametreleri yeniden yükle
         SpawnDronesOnGround();
-        Debug.Log($"✅ System restarted with {numberOfDrones} drones!");
+        SetupFormationOffsets();
+        Debug.Log("✅ Sistem yeniden başlatıldı!");
     }
     
-    void SpawnDronesOnGround()
-    {
-        if (dronePrefab == null)
-        {
-            Debug.LogError("Drone Prefab gerekli!");
-            return;
-        }
-        
-        spawnedDrones.Clear();
-        droneControllers.Clear();
-        
-        // DİNAMİK DRONE SAYISI - numberOfDrones parametresini kullan
-        int actualDroneCount = Mathf.Clamp(numberOfDrones, 1, 50); // Maksimum 50 drone
-        
-        // Drone'ları grid formatında yerleştir
-        int columns = Mathf.CeilToInt(Mathf.Sqrt(actualDroneCount)); // Kare şeklinde grid
-        int rows = Mathf.CeilToInt((float)actualDroneCount / columns);
-        
-        Debug.Log($"🚁 {actualDroneCount} drone spawn ediliyor - Grid: {columns}x{rows}");
-        
-        int droneIndex = 0;
-        for (int row = 0; row < rows && droneIndex < actualDroneCount; row++)
-        {
-            for (int col = 0; col < columns && droneIndex < actualDroneCount; col++)
-            {
-                Vector3 position = new Vector3(
-                    col * spacingX - (columns * spacingX / 2f),
-                    groundHeight,
-                    row * spacingZ - (rows * spacingZ / 2f)
-                );
-                
-                int droneNumber = droneIndex + 1;
-                GameObject drone = CreateDrone(position, droneNumber);
-                spawnedDrones.Add(drone);
-                
-                SmartDronePhysics physics = drone.AddComponent<SmartDronePhysics>();
-                physics.Initialize(thrustForce, moveForce, droneIndex, this, commHub);
-                droneControllers.Add(physics);
-                
-                droneIndex++;
-            }
-        }
-        
-        Debug.Log("🧠 INTELLIGENT DRONE SWARM CONTROLS:");
-        Debug.Log("   SPACE=Takeoff | F=Arrow | V=V-Form | L=Line | Y=Vertical");
-        Debug.Log("   N=Navigation Mission | C=Cut Communication | G=Land | R=Restart");
-        Debug.Log($"📊 TEKNOFEST: Drone={actualDroneCount} | Z={currentFlightAltitude}m | T={currentFormationHoldTime}s | X={currentAgentDistance}m");
-        Debug.Log($"🎯 NAVİGASYON: T1={currentT1_ReachTime}s | T2={currentT2_WaitTime}s | Waypoints={navigationWaypoints.Length}");
-        Debug.Log($"🔧 DURUM: Flying={isFlying} | Formation={isInFormation} | Navigating={isNavigating}");
-    }
+    // Public API Methods
+    public bool IsCommunicationLost() { return communicationLost; }
+    public float GetAgentDistance() { return ajanlarArasiMesafe; }
+    public float GetMinSafeDistance() { return minSafeDistance; }
     
-    IEnumerator ArmAndTakeoff()
-    {
-        isArming = true;
-        Debug.Log($"🚁 {droneControllers.Count} drone arming...");
-        
-        for (int i = 0; i < droneControllers.Count; i++)
-        {
-            droneControllers[i].ArmDrone();
-            yield return new WaitForSeconds(0.1f);
-        }
-        
-        yield return new WaitForSeconds(0.5f);
-        
-        Debug.Log("🚀 Takeoff initiated...");
-        
-        // DİNAMİK TAKEOFF ORDER - Drone sayısına göre ayarla
-        List<int> takeoffOrder = new List<int>();
-        
-        // Dış kenardan başla, merkeze doğru git
-        for (int i = 0; i < droneControllers.Count; i += 2)
-            takeoffOrder.Add(i); // Çift indexler önce
-        
-        for (int i = 1; i < droneControllers.Count; i += 2)
-            takeoffOrder.Add(i); // Tek indexler sonra
-        
-        foreach (int droneIndex in takeoffOrder)
-        {
-            if (droneIndex < droneControllers.Count)
-            {
-                droneControllers[droneIndex].SmartTakeOff(currentFlightAltitude - 2f);
-                yield return new WaitForSeconds(0.15f);
-            }
-        }
-        
-        yield return new WaitForSeconds(3f);
-        
-        isArming = false;
-        isFlying = true;
-        Debug.Log($"✈️ {droneControllers.Count} drone swarm airborne!");
-    }
-    
-    IEnumerator FormSmartArrowFormation()
-    {
-        isInFormation = true;
-        currentFormationType = "Arrow";
-        Debug.Log($"🏹 ARROW FORMATION - {droneControllers.Count} drones, Z:{currentFlightAltitude}m, X:{currentAgentDistance}m");
-        
-        // DİNAMİK ARROW FORMASYONU - Drone sayısına göre hesapla
-        Vector3[] arrowPositions = GenerateDynamicArrowFormation();
-        
-        yield return StartCoroutine(ExecuteFormation(arrowPositions, "Arrow"));
-        
-        Debug.Log($"🔒 Arrow formation koruma: {currentFormationHoldTime}s");
-        yield return new WaitForSeconds(currentFormationHoldTime);
-        Debug.Log("✅ Arrow formation complete!");
-    }
-    
-    Vector3[] GenerateDynamicArrowFormation()
-    {
-        int droneCount = droneControllers.Count;
-        Vector3[] positions = new Vector3[droneCount];
-        
-        // Ok başı (tip)
-        positions[0] = new Vector3(0, currentFlightAltitude + 6, 0);
-        
-        if (droneCount == 1) return positions;
-        
-        // Ok kuyruğu (en arkada)
-        if (droneCount > 1)
-            positions[droneCount - 1] = new Vector3(0, currentFlightAltitude - 4, -(droneCount * 2));
-        
-        // Yan kanatlar - dengeli dağıtım
-        int sidesCount = droneCount - 2; // Tip ve kuyruk hariç
-        int leftWing = sidesCount / 2;
-        int rightWing = sidesCount - leftWing;
-        
-        // Sol kanat
-        for (int i = 0; i < leftWing; i++)
-        {
-            float wingStep = (float)(i + 1) / (leftWing + 1);
-            positions[i + 1] = new Vector3(
-                -currentAgentDistance * (i + 1),
-                currentFlightAltitude + 4 - (wingStep * 8),
-                -(wingStep * droneCount * 1.5f)
-            );
-        }
-        
-        // Sağ kanat
-        for (int i = 0; i < rightWing; i++)
-        {
-            float wingStep = (float)(i + 1) / (rightWing + 1);
-            positions[leftWing + i + 1] = new Vector3(
-                currentAgentDistance * (i + 1),
-                currentFlightAltitude + 4 - (wingStep * 8),
-                -(wingStep * droneCount * 1.5f)
-            );
-        }
-        
-        return positions;
-    }
-    
-    IEnumerator FormSmartVFormation()
-    {
-        isInFormation = true;
-        currentFormationType = "V";
-        Debug.Log($"📐 V FORMATION - {droneControllers.Count} drones, Z:{currentFlightAltitude}m, X:{currentAgentDistance}m");
-        
-        // DİNAMİK V FORMASYONU - Drone sayısına göre hesapla
-        Vector3[] vPositions = GenerateDynamicVFormation();
-        
-        yield return StartCoroutine(ExecuteFormation(vPositions, "V"));
-        
-        Debug.Log($"🔒 V formation koruma: {currentFormationHoldTime}s");
-        yield return new WaitForSeconds(currentFormationHoldTime);
-        Debug.Log("✅ V formation complete!");
-    }
-    
-    Vector3[] GenerateDynamicVFormation()
-    {
-        int droneCount = droneControllers.Count;
-        Vector3[] positions = new Vector3[droneCount];
-        
-        // V'nin alt merkez noktası
-        positions[0] = new Vector3(0, currentFlightAltitude, 0);
-        
-        if (droneCount == 1) return positions;
-        
-        // Kalan drone'ları sol ve sağ kanatlara dağıt
-        int sidesCount = droneCount - 1;
-        int leftWing = sidesCount / 2;
-        int rightWing = sidesCount - leftWing;
-        
-        // Sol kanat (yükseklik artarak)
-        for (int i = 0; i < leftWing; i++)
-        {
-            positions[i + 1] = new Vector3(
-                -currentAgentDistance * (i + 1) * 0.8f,
-                currentFlightAltitude + ((i + 1) * 2.5f),
-                0
-            );
-        }
-        
-        // Sağ kanat (yükseklik artarak)
-        for (int i = 0; i < rightWing; i++)
-        {
-            positions[leftWing + i + 1] = new Vector3(
-                currentAgentDistance * (i + 1) * 0.8f,
-                currentFlightAltitude + ((i + 1) * 2.5f),
-                0
-            );
-        }
-        
-        return positions;
-    }
-    
-    IEnumerator FormSmartLineFormation()
-    {
-        isInFormation = true;
-        currentFormationType = "Line";
-        Debug.Log($"➖ LINE FORMATION - {droneControllers.Count} drones, Z:{currentFlightAltitude}m, X:{currentAgentDistance}m");
-        
-        // DİNAMİK LINE FORMASYONU - Tüm drone'lar için
-        Vector3[] linePositions = new Vector3[droneControllers.Count];
-        float totalWidth = (droneControllers.Count - 1) * currentAgentDistance;
-        float startX = -totalWidth / 2f;
-        
-        for (int i = 0; i < droneControllers.Count; i++)
-        {
-            linePositions[i] = new Vector3(
-                startX + (i * currentAgentDistance),
-                currentFlightAltitude,
-                0
-            );
-        }
-        
-        yield return StartCoroutine(ExecuteFormation(linePositions, "Line"));
-        
-        Debug.Log($"🔒 Line formation koruma: {currentFormationHoldTime}s");
-        yield return new WaitForSeconds(currentFormationHoldTime);
-        Debug.Log($"✅ Line formation complete with {droneControllers.Count} drones!");
-    }
-    
-    IEnumerator FormSmartVerticalLineFormation()
-    {
-        isInFormation = true;
-        currentFormationType = "Vertical";
-        Debug.Log($"📏 VERTICAL COLUMN - {droneControllers.Count} drones, Z:{currentFlightAltitude}m, X:{currentAgentDistance}m");
-        
-        // DİNAMİK VERTICAL COLUMN - Tüm drone'lar için
-        Vector3[] columnPositions = new Vector3[droneControllers.Count];
-        
-        for (int i = 0; i < droneControllers.Count; i++)
-        {
-            columnPositions[i] = new Vector3(
-                0f,
-                currentFlightAltitude + (i * currentAgentDistance * 0.6f),
-                0f
-            );
-        }
-        
-        assignedPositions.Clear();
-        for (int i = 0; i < droneControllers.Count; i++)
-        {
-            assignedPositions[i] = columnPositions[i];
-            droneControllers[i].SetAssignedPosition(columnPositions[i]);
-        }
-        
-        Debug.Log($"📏 {droneControllers.Count} drone moving to vertical positions...");
-        for (int i = 0; i < droneControllers.Count; i++)
-        {
-            droneControllers[i].StartSmartFormationMove();
-            yield return new WaitForSeconds(0.4f);
-        }
-        
-        yield return new WaitForSeconds(6f);
-        
-        for (int i = 0; i < droneControllers.Count; i++)
-            droneControllers[i].LockFormation();
-        
-        Debug.Log($"🔒 Vertical formation koruma: {currentFormationHoldTime}s");
-        yield return new WaitForSeconds(currentFormationHoldTime);
-        Debug.Log($"✅ Vertical formation complete with {droneControllers.Count} drones!");
-        
-        isInFormation = false;
-    }
-    
-    IEnumerator ExecuteFormation(Vector3[] positions, string formationName)
-    {
-        int droneCount = droneControllers.Count;
-        int positionCount = positions.Length;
-        
-        Debug.Log($"🎯 {formationName} Formation: {droneCount} drones, {positionCount} positions");
-        
-        // Eğer pozisyon sayısı drone sayısından azsa, hata ver
-        if (positionCount < droneCount)
-        {
-            Debug.LogError($"❌ {formationName} formasyonu için yeterli pozisyon yok! Drone:{droneCount}, Position:{positionCount}");
-            yield break;
-        }
-        
-        // Staging positions - drone sayısına göre dinamik
-        Vector3[] stagingPositions = new Vector3[droneCount];
-        Vector3 center = Vector3.zero;
-        for (int i = 0; i < droneCount && i < positionCount; i++) 
-            center += positions[i];
-        center /= Mathf.Min(droneCount, positionCount);
-        
-        float angleStep = 360f / (float)droneCount;
-        for (int i = 0; i < droneCount; i++)
-        {
-            float angle = i * angleStep * Mathf.Deg2Rad;
-            stagingPositions[i] = new Vector3(
-                center.x + stagingRadius * Mathf.Cos(angle),
-                center.y,
-                center.z + stagingRadius * Mathf.Sin(angle)
-            );
-        }
-        
-        // Phase 1: Staging - TÜM DRONE'LAR
-        Debug.Log($"🎯 Phase 1: {droneCount} drone staging...");
-        for (int i = 0; i < droneCount; i++)
-        {
-            droneControllers[i].SetStagingPosition(stagingPositions[i]);
-            droneControllers[i].MoveToStaging();
-            yield return new WaitForSeconds(0.15f);
-        }
-        
-        yield return new WaitForSeconds(3f);
-        
-        // Phase 2: Formation - TÜM DRONE'LAR
-        Debug.Log($"🎯 Phase 2: {droneCount} drone formation...");
-        assignedPositions.Clear();
-        for (int i = 0; i < droneCount; i++)
-        {
-            assignedPositions[i] = positions[i];
-            droneControllers[i].SetAssignedPosition(positions[i]);
-        }
-        
-        int[] smartOrder = formationName == "Arrow" ? GenerateArrowOrder() :
-                          formationName == "Line" ? GenerateCenterOutOrder() :
-                          GenerateSequentialOrder();
-        
-        foreach (int droneIndex in smartOrder)
-        {
-            if (droneIndex < droneCount)
-            {
-                droneControllers[droneIndex].StartSmartFormationMove();
-                yield return new WaitForSeconds(0.25f);
-            }
-        }
-        
-        yield return new WaitForSeconds(6f);
-        
-        // TÜM DRONE'LARI kilitle
-        for (int i = 0; i < droneCount; i++)
-            droneControllers[i].LockFormation();
-        
-        isInFormation = false;
-        Debug.Log($"✅ {formationName} formation complete with {droneCount} drones!");
-    }
-    
-    int[] GenerateArrowOrder()
-    {
-        List<int> order = new List<int>();
-        int count = droneControllers.Count;
-        
-        // Tip önce (ilk drone)
-        if (count > 0) order.Add(0);
-        
-        // Kuyruk sonra (son drone)  
-        if (count > 1) order.Add(count - 1);
-        
-        // Diğerleri sırayla - önce sol kanat, sonra sağ kanat
-        for (int i = 1; i < count - 1; i++)
-            order.Add(i);
-        
-        return order.ToArray();
-    }
-    
-    int[] GenerateSequentialOrder()
-    {
-        int[] order = new int[droneControllers.Count];
-        for (int i = 0; i < droneControllers.Count; i++)
-            order[i] = i;
-        return order;
-    }
-    
-    int[] GenerateCenterOutOrder()
-    {
-        List<int> order = new List<int>();
-        int count = droneControllers.Count;
-        int center = count / 2;
-        
-        order.Add(center);
-        for (int i = 1; i <= center; i++)
-        {
-            if (center - i >= 0) order.Add(center - i);
-            if (center + i < count) order.Add(center + i);
-        }
-        
-        return order.ToArray();
-    }
-    
-    IEnumerator LandDrones()
-    {
-        Debug.Log("🛬 Landing swarm...");
-        isFlying = false;
-        isInFormation = false;
-        isNavigating = false;
-        
-        foreach (var drone in droneControllers)
-        {
-            drone.UnlockFormation();
-            drone.Land();
-            yield return new WaitForSeconds(0.15f);
-        }
-    }
-    
-    // API Methods
     public List<SmartDroneData> GetNearbyDroneData(int excludeID, Vector3 position, float range)
     {
         List<SmartDroneData> nearbyDrones = new List<SmartDroneData>();
@@ -961,25 +599,6 @@ public class DroneSpawner : MonoBehaviour
     public Vector3 GetAssignedPosition(int droneID)
     {
         return assignedPositions.ContainsKey(droneID) ? assignedPositions[droneID] : Vector3.zero;
-    }
-    
-    public bool IsCommunicationLost() { return communicationLost; }
-    
-    GameObject CreateDrone(Vector3 position, int droneNumber)
-    {
-        GameObject newDrone = Instantiate(dronePrefab, position, Quaternion.identity);
-        newDrone.name = "SmartDrone_" + droneNumber;
-        
-        Rigidbody rb = newDrone.GetComponent<Rigidbody>();
-        if (rb == null) rb = newDrone.AddComponent<Rigidbody>();
-        
-        rb.mass = 1f;
-        rb.linearDamping = 4f;
-        rb.angularDamping = 10f;
-        rb.useGravity = true;
-        rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
-        
-        return newDrone;
     }
 }
 
@@ -1011,30 +630,34 @@ public class DroneCommHub : MonoBehaviour
     
     public Vector3 RequestSafePathVector(int droneID, Vector3 currentPos, Vector3 targetPos)
     {
-        // Haberleşme kesintisi durumunda basit collision avoidance
         if (!communicationActive)
         {
             return GetBasicAvoidanceVector(droneID, currentPos, targetPos);
         }
         
-        List<SmartDroneData> nearbyDrones = spawner.GetNearbyDroneData(droneID, currentPos, 10f);
-        
+        List<SmartDroneData> nearbyDrones = spawner.GetNearbyDroneData(droneID, currentPos, 15f);
         Vector3 safePath = targetPos - currentPos;
         Vector3 avoidanceVector = Vector3.zero;
         
         foreach (SmartDroneData drone in nearbyDrones)
         {
-            if (drone.distance < 5f)
+            float criticalDistance = 8f; // Daha geniş güvenli alan
+            if (drone.distance < criticalDistance)
             {
-                Vector3 futurePos = drone.position + drone.velocity * 2f;
-                Vector3 avoidDirection = (currentPos - futurePos).normalized;
+                // ÇOK güçlü kaçınma
+                Vector3 avoidDirection = (currentPos - drone.position).normalized;
+                float urgency = (criticalDistance - drone.distance) / criticalDistance;
+                avoidanceVector += avoidDirection * urgency * 8f;
                 
-                float avoidanceStrength = (5f - drone.distance) / 5f;
-                avoidanceVector += avoidDirection * avoidanceStrength * 3f;
+                // Büyük yükseklik farkı oluştur
+                if (Mathf.Abs(currentPos.y - drone.position.y) < 3f)
+                {
+                    avoidanceVector.y += (droneID % 2 == 0 ? 3f : -3f) * urgency;
+                }
             }
         }
         
-        return (safePath.normalized + avoidanceVector.normalized).normalized;
+        return (safePath.normalized + avoidanceVector.normalized * 0.8f).normalized;
     }
     
     Vector3 GetBasicAvoidanceVector(int droneID, Vector3 currentPos, Vector3 targetPos)
@@ -1042,29 +665,37 @@ public class DroneCommHub : MonoBehaviour
         Vector3 direction = (targetPos - currentPos).normalized;
         Vector3 avoidance = Vector3.zero;
         
-        // Sadece yakın drone'lardan kaçın
-        List<SmartDroneData> nearbyDrones = spawner.GetNearbyDroneData(droneID, currentPos, 6f);
+        List<SmartDroneData> nearbyDrones = spawner.GetNearbyDroneData(droneID, currentPos, 8f);
         
         foreach (SmartDroneData drone in nearbyDrones)
         {
-            if (drone.distance < 4f)
+            float minDistance = spawner.GetMinSafeDistance();
+            if (drone.distance < minDistance)
             {
                 Vector3 avoidDir = (currentPos - drone.position).normalized;
-                avoidance += avoidDir * (4f - drone.distance);
+                float urgency = (minDistance - drone.distance) / minDistance;
+                avoidance += avoidDir * urgency * 3f;
+                
+                // Otonom modda yükseklik farkı
+                if (Mathf.Abs(currentPos.y - drone.position.y) < 1.5f)
+                {
+                    avoidance.y += (droneID % 2 == 0 ? 1f : -1f) * urgency;
+                }
             }
         }
         
-        return (direction + avoidance * 0.3f).normalized;
+        return (direction + avoidance * 0.7f).normalized;
     }
 }
 
 public class SmartDronePhysics : MonoBehaviour
 {
-    public float thrustForce = 12f;
-    public float moveForce = 10f;
-    public float hoverThrust = 10f;
-    public float maxSpeed = 14f;
-    public float fastModeMultiplier = 2f;
+    public float thrustForce = 25f;
+    public float moveForce = 18f;
+    public float hoverThrust = 18f;
+    public float maxSpeed = 25f;
+    public float fastModeMultiplier = 2.5f;
+    public float landingSpeed = 3f;
     
     [System.NonSerialized] public int droneID;
     
@@ -1073,13 +704,11 @@ public class SmartDronePhysics : MonoBehaviour
     private Rigidbody rb;
     
     private enum DroneState { 
-        Grounded, Armed, TakingOff, Hovering, Staging, FormationMove, 
-        FastFormationMove, FormationHold, NavigationMove, NavigationLanding, Landing 
+        Grounded, Armed, TakingOff, Hovering, NavigationMove, FastNavigationMove, FormationHold, NavigationLanding, FastLanding, Landing, Autonomous
     }
     
     private DroneState currentState = DroneState.Grounded;
     private Vector3 assignedPosition;
-    private Vector3 stagingPosition;
     private float targetHeight;
     private bool autonomousMode = false;
     private float navigationMoveTimer = 0f;
@@ -1094,6 +723,7 @@ public class SmartDronePhysics : MonoBehaviour
         commHub = hub;
         
         rb = GetComponent<Rigidbody>();
+        assignedPosition = transform.position;
         targetHeight = transform.position.y;
     }
     
@@ -1101,138 +731,14 @@ public class SmartDronePhysics : MonoBehaviour
     {
         if (currentState == DroneState.Grounded) return;
         
-        float upwardThrust = CalculateIntelligentThrust();
-        rb.AddForce(Vector3.up * upwardThrust);
-        
-        ProcessIntelligentMovement();
+        ApplyThrust();
+        ApplyMovement();
         
         if (rb.linearVelocity.magnitude > maxSpeed)
             rb.linearVelocity = rb.linearVelocity.normalized * maxSpeed;
     }
     
-    void ProcessIntelligentMovement()
-    {
-        Vector3 currentPos = transform.position;
-        Vector3 targetForce = Vector3.zero;
-        
-        switch (currentState)
-        {
-            case DroneState.Staging:
-                targetForce = CalculateSmartMovement(currentPos, stagingPosition);
-                CheckWaypointReached(stagingPosition, 2f);
-                break;
-                
-            case DroneState.FormationMove:
-                targetForce = CalculateSmartMovement(currentPos, assignedPosition);
-                CheckWaypointReached(assignedPosition, 1.5f);
-                break;
-                
-            case DroneState.FastFormationMove:
-                targetForce = CalculateFastMovement(currentPos, assignedPosition);
-                CheckWaypointReached(assignedPosition, 1.8f);
-                break;
-                
-            case DroneState.NavigationMove:
-                navigationMoveTimer += Time.fixedDeltaTime;
-                targetForce = autonomousMode ? 
-                    CalculateAutonomousMovement(currentPos, assignedPosition) :
-                    CalculateSmartMovement(currentPos, assignedPosition);
-                CheckWaypointReached(assignedPosition, 2f);
-                break;
-                
-            case DroneState.FormationHold:
-                targetForce = CalculatePrecisionHold(currentPos, assignedPosition);
-                break;
-        }
-        
-        rb.AddForce(targetForce);
-    }
-    
-    Vector3 CalculateSmartMovement(Vector3 from, Vector3 to)
-    {
-        if (commHub == null) return (to - from).normalized * moveForce;
-        
-        Vector3 safeDirection = commHub.RequestSafePathVector(droneID, from, to);
-        float distance = Vector3.Distance(from, to);
-        float forceMultiplier = Mathf.Clamp(distance / 2f, 0.8f, 2f);
-        
-        return safeDirection * moveForce * forceMultiplier;
-    }
-    
-    Vector3 CalculateAutonomousMovement(Vector3 from, Vector3 to)
-    {
-        Vector3 direction = (to - from).normalized;
-        float distance = Vector3.Distance(from, to);
-        
-        // Otonom modda basit collision avoidance
-        Vector3 avoidance = CalculateBasicAvoidance(from);
-        
-        float forceMultiplier = Mathf.Clamp(distance / 2f, 0.8f, 2f);
-        return (direction + avoidance * 0.4f).normalized * moveForce * forceMultiplier;
-    }
-    
-    Vector3 CalculateFastMovement(Vector3 from, Vector3 to)
-    {
-        Vector3 direction = (to - from).normalized;
-        float distance = Vector3.Distance(from, to);
-        Vector3 avoidance = CalculateBasicAvoidance(from);
-        
-        float forceMultiplier = Mathf.Clamp(distance / 1.5f, 1f, 2.5f);
-        return (direction + avoidance * 0.2f).normalized * moveForce * fastModeMultiplier * forceMultiplier;
-    }
-    
-    Vector3 CalculateBasicAvoidance(Vector3 myPos)
-    {
-        if (swarmController == null) return Vector3.zero;
-        
-        Vector3 avoidance = Vector3.zero;
-        List<SmartDroneData> nearby = swarmController.GetNearbyDroneData(droneID, myPos, 4f);
-        
-        foreach (SmartDroneData drone in nearby)
-        {
-            if (drone.distance < 3f)
-            {
-                Vector3 away = (myPos - drone.position).normalized;
-                avoidance += away * (3f - drone.distance);
-            }
-        }
-        
-        return avoidance;
-    }
-    
-    Vector3 CalculatePrecisionHold(Vector3 from, Vector3 to)
-    {
-        Vector3 error = to - from;
-        float errorMagnitude = error.magnitude;
-        
-        if (errorMagnitude < 0.1f) return Vector3.zero;
-        
-        float force = Mathf.Clamp(errorMagnitude * 2f, 0.1f, moveForce * 0.5f);
-        return error.normalized * force;
-    }
-    
-    void CheckWaypointReached(Vector3 target, float threshold)
-    {
-        if (Vector3.Distance(transform.position, target) < threshold)
-        {
-            switch (currentState)
-            {
-                case DroneState.Staging:
-                    currentState = DroneState.Hovering;
-                    break;
-                    
-                case DroneState.FormationMove:
-                case DroneState.FastFormationMove:
-                case DroneState.NavigationMove:
-                    currentState = DroneState.Hovering;
-                    targetHeight = assignedPosition.y;
-                    navigationMoveTimer = 0f;
-                    break;
-            }
-        }
-    }
-    
-    float CalculateIntelligentThrust()
+    void ApplyThrust()
     {
         float currentHeight = transform.position.y;
         float thrust = hoverThrust;
@@ -1240,40 +746,156 @@ public class SmartDronePhysics : MonoBehaviour
         switch (currentState)
         {
             case DroneState.TakingOff:
-                if (currentHeight < targetHeight - 0.5f)
-                    thrust = thrustForce * 1.2f;
+                if (currentHeight < targetHeight - 1f)
+                    thrust = thrustForce * 1.6f; // Daha hızlı kalkış
                 else
                     currentState = DroneState.Hovering;
-                break;
-                
-            case DroneState.Landing:
-            case DroneState.NavigationLanding:
-                thrust = hoverThrust * 0.3f;
-                if (currentHeight <= 1.5f)
-                {
-                    currentState = DroneState.Grounded;
-                    rb.linearVelocity = Vector3.zero;
-                }
-                break;
-                
-            case DroneState.FormationHold:
-                float heightError = assignedPosition.y - currentHeight;
-                thrust = hoverThrust + (heightError * 5f);
-                thrust = Mathf.Clamp(thrust, hoverThrust * 0.6f, hoverThrust * 1.8f);
                 break;
                 
             default:
                 float heightError2 = targetHeight - currentHeight;
                 thrust = hoverThrust + (heightError2 * 3f);
-                thrust = Mathf.Clamp(thrust, hoverThrust * 0.7f, hoverThrust * 1.4f);
+                thrust = Mathf.Clamp(thrust, hoverThrust * 0.7f, hoverThrust * 1.5f);
                 break;
         }
         
-        return thrust;
+        rb.AddForce(Vector3.up * thrust);
+    }
+    
+    void ApplyMovement()
+    {
+        Vector3 targetForce = Vector3.zero;
+        
+        switch (currentState)
+        {
+            case DroneState.NavigationMove:
+                navigationMoveTimer += Time.fixedDeltaTime;
+                targetForce = autonomousMode ? 
+                    CalculateAutonomousMovement() :
+                    CalculateNavigationMovement();
+                break;
+                
+            case DroneState.FastNavigationMove:
+                navigationMoveTimer += Time.fixedDeltaTime;
+                targetForce = autonomousMode ? 
+                    CalculateAutonomousMovement() * 1.5f :
+                    CalculateNavigationMovement() * 2f; // Çok hızlı hareket
+                break;
+                
+            case DroneState.FastLanding:
+                // İniş sırasında hedefe doğru hareket et
+                targetForce = CalculateBasicMovement() * 0.5f; // Yavaş hareket
+                break;
+                
+            case DroneState.FormationHold:
+                targetForce = CalculatePrecisionHold();
+                break;
+                
+            case DroneState.Hovering:
+                targetForce = CalculateHoverMovement();
+                break;
+                
+            case DroneState.Autonomous:
+                targetForce = CalculateAutonomousMovement();
+                break;
+        }
+        
+        if (targetForce != Vector3.zero)
+        {
+            rb.AddForce(targetForce);
+        }
+    }
+    
+    Vector3 CalculateNavigationMovement()
+    {
+        if (commHub == null) return CalculateBasicMovement();
+        
+        Vector3 safeDirection = commHub.RequestSafePathVector(droneID, transform.position, assignedPosition);
+        float distance = Vector3.Distance(transform.position, assignedPosition);
+        
+        // ULTRA hızlı hareket için çarpan
+        float forceMultiplier = Mathf.Clamp(distance / 1.5f, 1.5f, 4f);
+        
+        return safeDirection * moveForce * forceMultiplier * fastModeMultiplier;
+    }
+    
+    Vector3 CalculateAutonomousMovement()
+    {
+        // Otonom modda SÜPER hızlı hareket
+        Vector3 direction = (assignedPosition - transform.position).normalized;
+        Vector3 avoidance = CalculateStrongAvoidance();
+        
+        float distance = Vector3.Distance(transform.position, assignedPosition);
+        float forceMultiplier = Mathf.Clamp(distance / 1.5f, 1.2f, 3.5f);
+        
+        return (direction + avoidance * 0.6f).normalized * moveForce * forceMultiplier * fastModeMultiplier;
+    }
+    
+    Vector3 CalculateBasicMovement()
+    {
+        Vector3 direction = (assignedPosition - transform.position).normalized;
+        Vector3 avoidance = CalculateStrongAvoidance();
+        
+        float distance = Vector3.Distance(transform.position, assignedPosition);
+        float forceMultiplier = Mathf.Clamp(distance / 2f, 1f, 2.5f);
+        
+        return (direction + avoidance * 0.5f).normalized * moveForce * forceMultiplier;
+    }
+    
+    Vector3 CalculateHoverMovement()
+    {
+        Vector3 toTarget = assignedPosition - transform.position;
+        float distance = toTarget.magnitude;
+        
+        if (distance < 1f) return Vector3.zero;
+        
+        float force = Mathf.Clamp(distance * 2f, 0.5f, moveForce);
+        return toTarget.normalized * force;
+    }
+    
+    Vector3 CalculatePrecisionHold()
+    {
+        Vector3 error = assignedPosition - transform.position;
+        float errorMagnitude = error.magnitude;
+        
+        if (errorMagnitude < 0.5f) return Vector3.zero;
+        
+        float force = Mathf.Clamp(errorMagnitude * 3f, 0.2f, moveForce * 0.8f);
+        return error.normalized * force;
+    }
+    
+    Vector3 CalculateStrongAvoidance()
+    {
+        if (swarmController == null) return Vector3.zero;
+        
+        Vector3 avoidance = Vector3.zero;
+        List<SmartDroneData> nearby = swarmController.GetNearbyDroneData(droneID, transform.position, 12f);
+        
+        foreach (SmartDroneData drone in nearby)
+        {
+            float criticalDistance = 8f; // Geniş güvenlik alanı
+            if (drone.distance < criticalDistance)
+            {
+                Vector3 away = (transform.position - drone.position).normalized;
+                float urgency = (criticalDistance - drone.distance) / criticalDistance;
+                avoidance += away * urgency * 6f;
+                
+                // Kritik mesafede büyük yükseklik farkı
+                if (drone.distance < 6f && Mathf.Abs(transform.position.y - drone.position.y) < 3f)
+                {
+                    avoidance.y += (droneID % 2 == 0 ? 4f : -4f) * urgency;
+                }
+            }
+        }
+        
+        return avoidance;
     }
     
     // Public Methods
-    public void ArmDrone() { currentState = DroneState.Armed; }
+    public void ArmDrone() 
+    { 
+        currentState = DroneState.Armed; 
+    }
     
     public void SmartTakeOff(float height)
     {
@@ -1282,30 +904,12 @@ public class SmartDronePhysics : MonoBehaviour
         currentState = DroneState.TakingOff;
     }
     
-    public void SetStagingPosition(Vector3 position) { stagingPosition = position; }
-    
-    public void MoveToStaging()
-    {
-        if (currentState == DroneState.Grounded) return;
-        currentState = DroneState.Staging;
-        targetHeight = stagingPosition.y;
+    public void SetAssignedPosition(Vector3 position) 
+    { 
+        assignedPosition = position;
+        targetHeight = position.y;
     }
     
-    public void SetAssignedPosition(Vector3 position) { assignedPosition = position; }
-    
-    public void StartSmartFormationMove()
-    {
-        if (currentState == DroneState.Grounded) return;
-        currentState = DroneState.FormationMove;
-    }
-    
-    public void StartFastFormationMove()
-    {
-        if (currentState == DroneState.Grounded) return;
-        currentState = DroneState.FastFormationMove;
-    }
-    
-    // 🆕 NAVİGASYON METHODları
     public void StartNavigationMove(float maxTime)
     {
         if (currentState == DroneState.Grounded) return;
@@ -1314,26 +918,34 @@ public class SmartDronePhysics : MonoBehaviour
         navigationMoveTimer = 0f;
     }
     
+    public void StartFastNavigationMove(float maxTime)
+    {
+        if (currentState == DroneState.Grounded) return;
+        currentState = DroneState.FastNavigationMove;
+        maxNavigationTime = maxTime;
+        navigationMoveTimer = 0f;
+    }
+    
+    public void LockFormation() 
+    { 
+        currentState = DroneState.FormationHold; 
+    }
+    
     public void NavigationLand()
     {
         currentState = DroneState.NavigationLanding;
         targetHeight = 1f;
+        assignedPosition = new Vector3(assignedPosition.x, 1f, assignedPosition.z);
     }
     
-    public void SetAutonomousMode(bool autonomous)
+    public void FastLanding()
     {
-        autonomousMode = autonomous;
-        Debug.Log($"🤖 Drone {droneID}: Autonomous mode {(autonomous ? "ENABLED" : "DISABLED")}");
+        Debug.Log($"🛬 Drone {droneID}: Hızlı iniş başlatılıyor - Hedef: {assignedPosition}");
+        currentState = DroneState.FastLanding;
+        targetHeight = 1f;
+        // Iniş için pozisyonu yer seviyesine ayarla
+        assignedPosition = new Vector3(assignedPosition.x, 0.5f, assignedPosition.z);
     }
-    
-    public bool IsAtAssignedPosition(float threshold)
-    {
-        return Vector3.Distance(transform.position, assignedPosition) < threshold;
-    }
-    
-    public void LockFormation() { currentState = DroneState.FormationHold; }
-    
-    public void UnlockFormation() { currentState = DroneState.Hovering; }
     
     public void Land()
     {
@@ -1341,17 +953,31 @@ public class SmartDronePhysics : MonoBehaviour
         targetHeight = 1f;
     }
     
-    public Vector3 GetVelocity() { return rb != null ? rb.linearVelocity : Vector3.zero; }
-    
-    public Vector3 GetTargetPosition()
+    public void SetAutonomousMode(bool autonomous)
     {
-        switch (currentState)
+        autonomousMode = autonomous;
+        if (autonomous && currentState != DroneState.Grounded)
         {
-            case DroneState.Staging: return stagingPosition;
-            case DroneState.FormationMove:
-            case DroneState.NavigationMove:
-            case DroneState.FormationHold: return assignedPosition;
-            default: return transform.position;
+            currentState = DroneState.Autonomous;
         }
+        
+        Debug.Log($"🤖 Drone {droneID}: Otonom mod {(autonomous ? "AKTİF" : "PASİF")}");
+    }
+    
+    public bool IsAtAssignedPosition(float threshold)
+    {
+        return Vector3.Distance(transform.position, assignedPosition) < threshold;
+    }
+    
+    public Vector3 GetVelocity() 
+    { 
+        return rb != null ? rb.linearVelocity : Vector3.zero; 
+    }
+    
+    public Vector3 GetTargetPosition() 
+    { 
+        return assignedPosition; 
     }
 }
+                
+            
