@@ -132,11 +132,6 @@ Merkez: P_center = (0, Z, 0)
 - **Kamera:** 480p Raspberry kamera (ArUco tespiti)
 - **Batarya:** 3300 mAh 7.7V 2S 30C LiPo
 
-### 📚 Teknik Dokümantasyon
-- [Kritik Tasarım Raporu (KTR)](Documentation/KTR_Report.pdf)
-- [Algoritma Detayları](Documentation/Algorithms.md)
-- [Donanım Kılavuzu](Documentation/Hardware_Guide.md)
-- [API Referansı](Documentation/API_Reference.md)
 
 ### 🔬 Test ve Doğrulama
 - ✅ Formasyon geçişleri
