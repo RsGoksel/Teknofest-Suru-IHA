@@ -7,7 +7,7 @@
 - [V Formasyonu](https://youtu.be/DuO_IYh8ixo)
 - [Ok Formasyonu](https://youtu.be/IpQJxfUj--M)
 - [Sürü Navigasyon](https://youtu.be/xiAAvgKC9-k)
-- [Birey Ekleme-Çıkarma](https://youtu.be/rmu6ozI7tHk)
+- [Detaylı Birey Ekleme-Çıkarma]([https://youtu.be/rmu6ozI7tHk](https://youtu.be/l4E-2UByg9g)) 
 
 - [Detaylı Formasyon Analizi] https://youtu.be/3D_quwQUq44
 - [Detaylı Navigasyon Analizi] https://youtu.be/lXrNAUw9yEk
